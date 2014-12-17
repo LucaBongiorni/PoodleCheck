@@ -1,3 +1,30 @@
+======================
+README for PoodleCheck
+======================
+
+This is a modified version of the PolarSSL library that can be used to check TLS/SSLv3 server implementations for incomplete validation of padding, also known as the POODLE vulnerability.
+
+See the PolarSSL README below for building instructions.
+
+Usage
+=====
+
+After compiling, the binary is contained in programs/ssl/ssl_client2. The check is automatically enabled. Following parameters are interesting for checks:
+
+- poodle_check
+- server_name
+- server_addr
+- server_port
+- force_version
+
+API
+===
+The struct ssl_context got some additional members:
+
+- invalidate_padding: Activates padding invalidation. All paddings > 1 byte are decreased by one at the second to last byte.
+- invalidate_padding_data_only: do this only with application data records.
+- invalid_padding_cnt: count of performed padding invalidations.
+
 ===================
 README for PolarSSL
 ===================

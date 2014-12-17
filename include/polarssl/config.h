@@ -242,14 +242,14 @@
  *
  * Enable Cipher Feedback mode (CFB) for symmetric ciphers.
  */
-#define POLARSSL_CIPHER_MODE_CFB
+//#define POLARSSL_CIPHER_MODE_CFB
 
 /**
  * \def POLARSSL_CIPHER_MODE_CTR
  *
  * Enable Counter Block Cipher mode (CTR) for symmetric ciphers.
  */
-#define POLARSSL_CIPHER_MODE_CTR
+//#define POLARSSL_CIPHER_MODE_CTR
 
 /**
  * \def POLARSSL_CIPHER_NULL_CIPHER
@@ -312,7 +312,7 @@
  *
  * Uncomment this macro to enable weak ciphersuites
  */
-//#define POLARSSL_ENABLE_WEAK_CIPHERSUITES
+#define POLARSSL_ENABLE_WEAK_CIPHERSUITES
 
 /**
  * \def POLARSSL_REMOVE_ARC4_CIPHERSUITES
@@ -325,7 +325,7 @@
  *
  * Uncomment this macro to remove RC4 ciphersuites by default.
  */
-//#define POLARSSL_REMOVE_ARC4_CIPHERSUITES
+#define POLARSSL_REMOVE_ARC4_CIPHERSUITES
 
 /**
  * \def POLARSSL_ECP_XXXX_ENABLED
@@ -1495,7 +1495,7 @@
  * This module enables the AES-GCM and CAMELLIA-GCM ciphersuites, if other
  * requisites are enabled as well.
  */
-#define POLARSSL_GCM_C
+//#define POLARSSL_GCM_C
 
 /**
  * \def POLARSSL_HAVEGE_C

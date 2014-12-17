@@ -864,6 +864,14 @@ struct _ssl_context
     size_t verify_data_len;             /*!<  length of verify data stored   */
     char own_verify_data[36];           /*!<  previous handshake verify data */
     char peer_verify_data[36];          /*!<  previous handshake verify data */
+
+    /*
+     * Make invalid padding for POODLE check
+     */
+
+    int invalidate_padding;             /* invalidate padding */
+    int invalidate_padding_data_only;   /* ...but only when application data is transmitted */
+    unsigned long invalid_padding_cnt;  /* count of invalidated paddings */
 };
 
 #if defined(POLARSSL_SSL_HW_RECORD_ACCEL)

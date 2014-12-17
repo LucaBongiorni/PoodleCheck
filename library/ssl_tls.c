@@ -1208,6 +1208,12 @@ static int ssl_encrypt_buf( ssl_context *ssl )
         for( i = 0; i <= padlen; i++ )
             ssl->out_msg[ssl->out_msglen + i] = (unsigned char) padlen;
 
+        //printf("invalidate_padding=%d invalidate_padding_data_only=%d state==SSL_HANDSHAKE_OVER? %d padlen=%zd\n", ssl->invalidate_padding, ssl->invalidate_padding_data_only, ssl->state == SSL_HANDSHAKE_OVER, padlen);
+        if (ssl->invalidate_padding && (!ssl->invalidate_padding_data_only || (ssl->invalidate_padding_data_only && ssl->state == SSL_HANDSHAKE_OVER)) && padlen > 1) {
+            ssl->out_msg[ssl->out_msglen + padlen - 1] = (unsigned char) padlen - 1;
+            ssl->invalid_padding_cnt++;
+        }
+
         ssl->out_msglen += padlen + 1;
 
         enc_msglen = ssl->out_msglen;

@@ -88,13 +88,14 @@ int main( int argc, char *argv[] )
 #define DFL_EXCHANGES           1
 #define DFL_MIN_VERSION         -1
 #define DFL_MAX_VERSION         -1
-#define DFL_AUTH_MODE           SSL_VERIFY_REQUIRED
+#define DFL_AUTH_MODE           SSL_VERIFY_OPTIONAL
 #define DFL_MFL_CODE            SSL_MAX_FRAG_LEN_NONE
 #define DFL_TRUNC_HMAC          0
 #define DFL_RECONNECT           0
 #define DFL_RECO_DELAY          0
 #define DFL_TICKETS             SSL_SESSION_TICKETS_ENABLED
 #define DFL_ALPN_STRING         NULL
+#define DFL_POODLE_CHECK        2
 
 #define GET_REQUEST "GET %s HTTP/1.0\r\nExtra-header: "
 #define GET_REQUEST_END "\r\n\r\n"
@@ -132,6 +133,7 @@ struct options
     int reco_delay;             /* delay in seconds before resuming session */
     int tickets;                /* enable / disable session tickets         */
     const char *alpn_string;    /* ALPN supported protocols                 */
+    int poodle_check;           /* Check against incomplete padding check aka POODLE vulnerability */
 } opt;
 
 static void my_debug( void *ctx, int level, const char *str )
@@ -285,7 +287,9 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
 #endif /* POLARSSL_SSL_ALPN */
 
 #define USAGE \
-    "\n usage: ssl_client2 param=<>...\n"                   \
+    "POODLE check, based on PolarSSL\n"\
+    "Source code: https://github.com/thomaspatzke/PoodleCheck\n"\
+    "\n usage: poodle-check param=<>...\n"                   \
     "\n acceptable parameters:\n"                           \
     "    server_name=%%s      default: localhost\n"         \
     "    server_addr=%%s      default: given by name\n"     \
@@ -297,8 +301,6 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
     "    nbio=%%d             default: 0 (blocking I/O)\n"  \
     "                        options: 1 (non-blocking), 2 (added delays)\n" \
     "\n"                                                    \
-    "    auth_mode=%%s        default: \"optional\"\n"      \
-    "                        options: none, optional, required\n" \
     USAGE_IO                                                \
     "\n"                                                    \
     USAGE_PSK                                               \
@@ -318,15 +320,17 @@ static int my_verify( void *data, x509_crt *crt, int depth, int *flags )
     "    max_version=%%s      default: \"\" (tls1_2)\n"     \
     "    force_version=%%s    default: \"\" (none)\n"       \
     "                        options: ssl3, tls1, tls1_1, tls1_2\n" \
-    "    auth_mode=%%s        default: \"required\"\n"      \
+    "    auth_mode=%%s        default: \"optional\"\n"      \
     "                        options: none, optional, required\n" \
+    "    poodle_check=%%d    default: appdataonly"\
+    "                        options: appdataonly, yes, no"\
     "\n"                                                    \
     "    force_ciphersuite=<name>    default: all enabled\n"\
     " acceptable ciphersuite names:\n"
 
 int main( int argc, char *argv[] )
 {
-    int ret = 0, len, tail_len, server_fd, i, written, frags;
+    int ret = 0, poodle_notvuln = 0, len, tail_len, server_fd, i, written, frags;
     unsigned char buf[SSL_MAX_CONTENT_LEN + 1];
 #if defined(POLARSSL_KEY_EXCHANGE__SOME__PSK_ENABLED)
     unsigned char psk[POLARSSL_PSK_MAX_LEN];
@@ -413,6 +417,7 @@ int main( int argc, char *argv[] )
     opt.reco_delay          = DFL_RECO_DELAY;
     opt.tickets             = DFL_TICKETS;
     opt.alpn_string         = DFL_ALPN_STRING;
+    opt.poodle_check        = DFL_POODLE_CHECK;
 
     for( i = 1; i < argc; i++ )
     {
@@ -598,6 +603,17 @@ int main( int argc, char *argv[] )
         {
             opt.trunc_hmac = atoi( q );
             if( opt.trunc_hmac < 0 || opt.trunc_hmac > 1 )
+                goto usage;
+        }
+        else if( strcmp ( p, "poodle_check") == 0 )
+        {
+            if ( strcmp( q, "appdataonly" ) == 0 )
+                opt.poodle_check = 2;
+            else if ( strcmp( q, "yes" ) == 0 )
+                opt.poodle_check = 1;
+            else if ( strcmp( q, "no" ) == 0 )
+                opt.poodle_check = 0;
+            else
                 goto usage;
         }
         else
@@ -1003,6 +1019,13 @@ int main( int argc, char *argv[] )
         printf( " ok\n" );
     }
 
+    if ( opt.poodle_check != 0 ) {
+        ssl.invalidate_padding = 1;
+        if ( opt.poodle_check > 1 )
+            ssl.invalidate_padding_data_only = 1;
+    }
+
+
 #if defined(POLARSSL_X509_CRT_PARSE_C)
     /*
      * 5. Verify the server certificate
@@ -1105,12 +1128,15 @@ send_request:
     }
 
     buf[written] = '\0';
-    printf( " %d bytes written in %d fragments\n\n%s\n", written, frags, (char *) buf );
+    if (opt.poodle_check)
+        printf( " %d bytes written in %d fragments\n\n", written, frags);
+    else
+        printf( " %d bytes written in %d fragments\n\n%s\n", written, frags, (char *) buf );
 
     /*
      * 7. Read the HTTP response
      */
-    printf( "  < Read from server:" );
+    printf( "  < Read from server:\n" );
     fflush( stdout );
 
     do
@@ -1134,19 +1160,45 @@ send_request:
 
                 case 0:
                 case POLARSSL_ERR_NET_CONN_RESET:
-                    printf( " connection was reset by peer\n" );
-                    ret = 0;
-                    goto reconnect;
+                    if ( opt.poodle_check > 0 && ssl.invalid_padding_cnt > 0 )
+                    {
+                        printf( "\nConnection was reset by peer after sending record with invalid padding. Unusual. IPS? Peer possibly not vulnerable against POODLE attack\n" );
+                        goto exit;
+                    }
+                    else
+                    {
+                        printf( " connection was reset by peer\n" );
+                        ret = 0;
+                        goto reconnect;
+                    }
 
                 default:
-                    printf( " ssl_read returned -0x%x\n", -ret );
+                    if ( opt.poodle_check )
+                    {
+                        if ( ssl.invalid_padding_cnt > 0 )
+                        {
+                            printf( "\nServer failed with code %d after sending packet with invalid padding - likely not vulnerable against POODLE.\n\n", ret );
+                            poodle_notvuln = 1;
+                        }
+                        else
+                        {
+                            printf( "\nPOODLE check failed\n  ! ssl_read returned %d - no packets with invalidated padding sent.\n\n", ret );
+                        }
+                    }
+                    else
+                    {
+                        printf( " ssl_read returned -0x%x\n", -ret );
+                    }
                     goto exit;
             }
         }
 
         len = ret;
         buf[len] = '\0';
-        printf( " %d bytes read\n\n%s", len, (char *) buf );
+        if (opt.poodle_check)
+            printf( " %d bytes read\n\n", len);
+        else
+            printf( " %d bytes read\n\n%s", len, (char *) buf );
 
         /* End of message should be detected according to the syntax of the
          * application protocol (eg HTTP), just use a dummy test here. */
@@ -1187,7 +1239,19 @@ close_notify:
         }
     }
 
-    printf( " ok\n" );
+    if ( opt.poodle_check ) {
+        if ( !poodle_notvuln ) {
+            if ( ssl.invalid_padding_cnt > 0 ) {
+                printf("\nSent %lu TLS records with invalidated padding and the server doesn't cared about it - vulnerable against POODLE!\n", ssl.invalid_padding_cnt);
+            } else {
+                printf("\nNo TLS records with invalidated padding sent - can't say if server is vulnerable against POODLE.\n");
+            }
+        }
+    }
+    else
+    {
+        printf( " ok\n" );
+    }
 
     /*
      * 9. Reconnect?
@@ -1246,7 +1310,7 @@ reconnect:
      */
 exit:
 #ifdef POLARSSL_ERROR_C
-    if( ret != 0 )
+    if( !opt.poodle_check && ret != 0 )
     {
         char error_buf[100];
         polarssl_strerror( ret, error_buf, 100 );

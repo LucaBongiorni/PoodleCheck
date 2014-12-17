@@ -75,6 +75,7 @@ static void my_debug( void *ctx, int level, const char *str )
 int main( int argc, char *argv[] )
 {
     int ret, len, server_fd = -1;
+    int poodle_notvuln = 0;
     unsigned char buf[1024];
     const char *pers = "ssl_client1";
 
@@ -159,6 +160,8 @@ int main( int argc, char *argv[] )
         printf( " failed\n  ! ssl_init returned %d\n\n", ret );
         goto exit;
     }
+    ssl.invalidate_padding = 1;
+    ssl.invalidate_padding_data_only = 1;
 
     printf( " ok\n" );
 
@@ -235,7 +238,8 @@ int main( int argc, char *argv[] )
     }
 
     len = ret;
-    printf( " %d bytes written\n\n%s", len, (char *) buf );
+    //printf( " %d bytes written\n\n%s", len, (char *) buf);
+    printf( " %d bytes written\n\n", len);
 
     /*
      * 7. Read the HTTP response
@@ -257,7 +261,12 @@ int main( int argc, char *argv[] )
 
         if( ret < 0 )
         {
-            printf( "failed\n  ! ssl_read returned %d\n\n", ret );
+            if (ssl.invalid_padding_cnt > 0) {
+                printf( "Server failed with code %d after sending packet with invalid padding - likely not vulnerable against POODLE.\n\n", ret );
+                poodle_notvuln = 1;
+            } else {
+                printf( "failed\n  ! ssl_read returned %d - no packets with invalidated padding sent.\n\n", ret );
+            }
             break;
         }
 
@@ -268,14 +277,22 @@ int main( int argc, char *argv[] )
         }
 
         len = ret;
-        printf( " %d bytes read\n\n%s", len, (char *) buf );
+        //printf( " %d bytes read\n\n%s", len, (char *) buf );
     }
     while( 1 );
 
     ssl_close_notify( &ssl );
+    if (!poodle_notvuln) {
+        if (ssl.invalid_padding_cnt > 0) {
+            printf("Sent %lu TLS records with invalidated padding and the server doesn't cared about it - vulnerable against POODLE!\n", ssl.invalid_padding_cnt);
+        } else {
+            printf("No TLS records with invalidated padding sent - can't say if server is vulnerable against POODLE.\n");
+        }
+    }
 
 exit:
 
+/*
 #ifdef POLARSSL_ERROR_C
     if( ret != 0 )
     {
@@ -284,6 +301,7 @@ exit:
         printf("Last error was: %d - %s\n\n", ret, error_buf );
     }
 #endif
+*/
 
     if( server_fd != -1 )
         net_close( server_fd );
