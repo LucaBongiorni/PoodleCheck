@@ -6,6 +6,8 @@ This is a modified version of the PolarSSL library that can be used to check TLS
 
 See the PolarSSL README below for building instructions.
 
+Compiled binary for Linux systems: http://patzke.org/files/poodle-check
+
 Usage
 =====
 
